@@ -18,21 +18,34 @@ class RunMode(Enum):
     FORGET = 4
 
 
+@unique
+class Output(Enum):
+    NULL = 0
+    FILE = 1
+    STRING = 2
+
+
 class Command(object):
     def __init__(self, command: str):
         self.command = command
 
-    def build(self, address, wd=None, nohup=False, debug=False) -> List[str]:
+    def build(self, address, wd=None, nohup=False, output: Output = Output.NULL, debug=False) -> List[str]:
         full_command = ["ssh", address]
         if wd is not None:
             full_command += ["cd", wd, ";"]
         if nohup:
             full_command += ["nohup"]
-        if debug:
-            out_file = f"{address}.log"
+        if output == Output.STRING:
+            output_str = ""
         else:
-            out_file = "/dev/null"
-        full_command += [f"{self.command} >> {out_file} 2>&1 < /dev/null"]
+            if output == Output.FILE:
+                out_file = f"{address}.log"
+            elif output == Output.NULL:
+                out_file = "/dev/null"
+            else:
+                raise RuntimeError(f"Not a valid command output mode: '{output}'")
+            output_str = f">> {out_file} 2>&1"
+        full_command += [f"{self.command} {output_str} < /dev/null"]
         if nohup:
             full_command += ["&", "echo", "$!"]
         if debug:
@@ -41,11 +54,18 @@ class Command(object):
 
 
 def run_remotely(node: str, command: Command, wd=None, debug=False, mode: RunMode = RunMode.OUTPUT):
+    if mode == mode.OUTPUT:
+        output = Output.STRING
+    elif debug:
+        output = Output.FILE
+    else:
+        output = Output.NULL
+
     if mode == mode.FORGET:
-        full_command = command.build(node, wd=wd, debug=debug, nohup=True)
+        full_command = command.build(node, output=output, wd=wd, debug=debug, nohup=True)
         return subprocess.check_output(full_command).strip().decode()
     else:
-        full_command = command.build(node, wd=wd, debug=debug, nohup=False)
+        full_command = command.build(node, output=output, wd=wd, debug=debug, nohup=False)
         if mode == mode.OUTPUT:
             return subprocess.check_output(full_command).strip().decode()
         elif mode == mode.VOID:
@@ -97,9 +117,10 @@ def run_iteration(iteration: int, nodes: list, path: str, opencraft: str, yardst
         os.mkdir(iteration_dir)
 
     node = nodes[0]
-    run_remotely(node, Command(f"cp -r {os.path.join(path, '../../resources/config')} {iteration_dir}"), debug=True)
+    opencraft_wd = run_remotely(node, Command(f"mktemp -d"), mode=RunMode.OUTPUT)
+    run_remotely(node, Command(f"cp -r {os.path.join(path, '../../resources/config')} {opencraft_wd}"), debug=True)
     # TODO set the right amount of heap space.
-    opencraft_pid = run_remotely(node, Command(f"java -jar {opencraft}"), wd=iteration_dir, debug=True,
+    opencraft_pid = run_remotely(node, Command(f"java -jar {opencraft}"), wd=opencraft_wd, debug=True,
                                  mode=RunMode.FORGET)
 
     run_remotely(node, Command(f"cp {os.path.join(path, '../../resources/yardstick.toml')} {iteration_dir}"),
@@ -115,6 +136,10 @@ def run_iteration(iteration: int, nodes: list, path: str, opencraft: str, yardst
     run_remotely(node, Command(f"rm {os.path.join(iteration_dir, 'yardstick.toml')}"))
     # TODO make kill friendly
     run_remotely(node, Command(f"kill -9 {opencraft_pid}"))
+    run_remotely(node, Command(f"mv {os.path.join(opencraft_wd, 'dyconits.log')} {iteration_dir}"))
+    run_remotely(node, Command(
+        f"mv {os.path.join(opencraft_wd, node + '.log')} {os.path.join(iteration_dir, node + '.opencraft.log')}"))
+    run_remotely(node, Command(f"rm -rf {opencraft_wd}"))
 
 
 if __name__ == '__main__':
