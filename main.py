@@ -3,6 +3,7 @@ import glob
 import os
 import subprocess
 import threading
+from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import unique, Enum
 from typing import List
@@ -23,11 +24,6 @@ class Output(Enum):
     NULL = 0
     FILE = 1
     STRING = 2
-
-
-class Program(object):
-    def __init__(self, executable: str):
-        self.executable = executable
 
 
 class Command(object):
@@ -91,6 +87,126 @@ def kill(node: str, pid: str) -> None:
         run_remotely(node, Command(f"kill -9 {pid}"))
 
 
+class Instance(ABC):
+
+    def __init__(self, node: str, experiment_path: str, iteration: str):
+        self.node = node
+        self.iteration = iteration
+        self.experiment_path = experiment_path
+        self.iteration_dir = os.path.join(self.experiment_path, str(self.iteration))
+
+    @abstractmethod
+    def setup(self):
+        pass
+
+    @abstractmethod
+    def start(self):
+        pass
+
+    @abstractmethod
+    def stop(self):
+        pass
+
+    @abstractmethod
+    def clean(self):
+        pass
+
+
+class Opencraft(Instance):
+
+    def __init__(self, node: str, experiment_path: str, iteration: str, jvm_args: List[str]):
+        super().__init__(node, experiment_path, iteration)
+        assert os.path.isdir(experiment_path)
+        self.jvm_args = jvm_args
+        self.executable = None
+        self.pid = None
+        self.opencraft_wd = None
+
+    def setup(self):
+        # TODO make a function for this, with the required checks.
+        opencraft_matches = glob.glob(os.path.join(self.experiment_path, "../../resources/opencraft*.jar"),
+                                      recursive=False)
+        assert len(opencraft_matches) == 1
+        self.executable = opencraft_matches[0]
+        self.opencraft_wd = run_remotely(self.node, Command(f"mktemp -d"), mode=RunMode.OUTPUT)
+        run_remotely(self.node,
+                     Command(
+                         f"cp -r {os.path.join(self.experiment_path, '../../resources/config')} {self.opencraft_wd}"),
+                     debug=True)
+
+    def start(self):
+        self.pid = run_remotely(self.node, Command(f"java {' '.join(self.jvm_args)} -jar {self.executable}"),
+                                wd=self.opencraft_wd, debug=True,
+                                mode=RunMode.FORGET)
+
+    def stop(self):
+        kill(self.node, self.pid)
+
+    def clean(self):
+        run_remotely(self.node, Command(f"mv {os.path.join(self.opencraft_wd, 'dyconits.log')} {self.iteration_dir}"))
+        run_remotely(self.node, Command(
+            f"mv {os.path.join(self.opencraft_wd, self.node + '.log')} {os.path.join(self.iteration_dir, self.node + '.opencraft.log')}"))
+        run_remotely(self.node, Command(f"rm -rf {self.opencraft_wd}"))
+
+
+class Yardstick(Instance):
+
+    def __init__(self, node, experiment_path, iteration, jvm_args: List[str]):
+        super().__init__(node, experiment_path, iteration)
+        self.jvm_args = jvm_args
+        self.thread = None
+        self.executable = None
+
+    def setup(self):
+        yardstick_matches = glob.glob(os.path.join(self.experiment_path, "../../resources/yardstick*.jar"),
+                                      recursive=False)
+        assert len(yardstick_matches) == 1
+        # TODO support more than one node.
+        self.executable = yardstick_matches[0]
+        run_remotely(self.node, Command(
+            f"cp {os.path.join(self.experiment_path, '../../resources/yardstick.toml')} {self.iteration_dir}"),
+                     debug=True)
+
+    def start(self):
+        self.thread = run_remotely(self.node,
+                                   Command(f"java {' '.join(self.jvm_args)} -jar {self.executable}"),
+                                   wd=self.iteration_dir,
+                                   debug=True, mode=RunMode.THREAD)
+
+    def stop(self):
+        self.thread.join()
+
+    def clean(self):
+        run_remotely(self.node, Command(f"rm {os.path.join(self.iteration_dir, 'yardstick.toml')}"))
+
+
+class Pecosa(Instance):
+
+    def __init__(self, node: str, experiment_path: str, iteration: str, opencraft_pid):
+        super().__init__(node, experiment_path, iteration)
+        self.opencraft_pid = opencraft_pid
+        self.executable = None
+        self.log_file = None
+        self.pid = None
+
+    def setup(self):
+        pecosa_matches = glob.glob(os.path.join(self.experiment_path, "../../resources/pecosa.py"), recursive=False)
+        assert len(pecosa_matches) == 1
+        self.executable = pecosa_matches[0]
+        self.log_file = run_remotely(self.node, Command(f"mktemp -p /local"), mode=RunMode.OUTPUT)
+
+    def start(self):
+        self.pid = run_remotely(self.node, Command(f"python {self.executable} {self.log_file} {self.opencraft_pid}"),
+                                mode=RunMode.FORGET)
+
+    def stop(self):
+        kill(self.node, self.pid)
+
+    def clean(self):
+        run_remotely(self.node,
+                     Command(f"mv {self.log_file} {os.path.join(self.iteration_dir, 'performance-counters.log')}"))
+
+
 # FIXME support deployment (num Yardstick nodes) in config
 def run_experiment(path: str, nodes: list, **kwargs) -> None:
     # TODO check the existence of all necessary files and directories before starting the experiment.
@@ -104,18 +220,18 @@ def run_experiment(path: str, nodes: list, **kwargs) -> None:
 
     pecosa_matches = glob.glob(os.path.join(path, "../../resources/pecosa.py"), recursive=False)
     assert len(pecosa_matches) == 1
-    pecosa = Program(pecosa_matches[0])
+    pecosa = pecosa_matches[0]
 
     # TODO make a function for this, with the required checks.
     opencraft_matches = glob.glob(os.path.join(path, "../../resources/opencraft*.jar"), recursive=False)
     assert len(opencraft_matches) == 1
-    opencraft = Program(opencraft_matches[0])
+    opencraft = opencraft_matches[0]
     # TODO support opencraft world folder, through extra resources dir
 
     yardstick_matches = glob.glob(os.path.join(path, "../../resources/yardstick*.jar"), recursive=False)
     assert len(yardstick_matches) == 1
     # TODO support more than one node.
-    yardstick = Program(yardstick_matches[0])
+    yardstick = yardstick_matches[0]
 
     experiment_iterations = config["iterations"]
     assert experiment_iterations is not None
@@ -132,8 +248,9 @@ def run_experiment(path: str, nodes: list, **kwargs) -> None:
         run_iteration(i, nodes, path, pecosa, opencraft, opencraft_jvm_args, yardstick, yardstick_jvm_args)
 
 
-def run_iteration(iteration: int, nodes: list, path: str, pecosa: Program, opencraft: Program, opencraft_jvm_args: str,
-                  yardstick: Program,
+def run_iteration(iteration: int, nodes: list, path: str, pecosa: str, opencraft: str,
+                  opencraft_jvm_args: str,
+                  yardstick: str,
                   yardstick_jvm_args: str) -> None:
     iteration_dir = os.path.join(path, str(iteration))
     if os.path.isdir(iteration_dir):
@@ -145,18 +262,18 @@ def run_iteration(iteration: int, nodes: list, path: str, pecosa: Program, openc
 
     opencraft_wd = run_remotely(node, Command(f"mktemp -d"), mode=RunMode.OUTPUT)
     run_remotely(node, Command(f"cp -r {os.path.join(path, '../../resources/config')} {opencraft_wd}"), debug=True)
-    opencraft_pid = run_remotely(node, Command(f"java {' '.join(opencraft_jvm_args)} -jar {opencraft.executable}"),
+    opencraft_pid = run_remotely(node, Command(f"java {' '.join(opencraft_jvm_args)} -jar {opencraft}"),
                                  wd=opencraft_wd, debug=True,
                                  mode=RunMode.FORGET)
 
     pecosa_log_file = run_remotely(node, Command(f"mktemp -p /local"), mode=RunMode.OUTPUT)
-    pecosa_pid = run_remotely(node, Command(f"python {pecosa.executable} {pecosa_log_file} {opencraft_pid}"),
+    pecosa_pid = run_remotely(node, Command(f"python {pecosa} {pecosa_log_file} {opencraft_pid}"),
                               mode=RunMode.FORGET)
 
     run_remotely(node, Command(f"cp {os.path.join(path, '../../resources/yardstick.toml')} {iteration_dir}"),
                  debug=True)
     print(datetime.now())
-    yardstick_thread = run_remotely(node, Command(f"java {' '.join(yardstick_jvm_args)} -jar {yardstick.executable}"),
+    yardstick_thread = run_remotely(node, Command(f"java {' '.join(yardstick_jvm_args)} -jar {yardstick}"),
                                     wd=iteration_dir,
                                     debug=True, mode=RunMode.THREAD)
     # TODO add timeout.
