@@ -79,8 +79,6 @@ def run_remotely(node: str, command: Command, wd=None, debug=False, mode: RunMod
             raise RuntimeError(f"Runmode '{mode}' does not exist.")
 
 
-# TODO add debug file to output files
-# TODO copy dyconits.log to iteration dir.
 def run_experiment(path: str, nodes: list, **kwargs) -> None:
     # TODO check the existence of all necessary files and directories before starting the experiment.
     assert len(path) > 0
