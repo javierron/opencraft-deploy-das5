@@ -171,7 +171,6 @@ class Yardstick(Instance):
         yardstick_matches = glob.glob(os.path.join(self.experiment_path, "../../resources/yardstick*.jar"),
                                       recursive=False)
         assert len(yardstick_matches) == 1
-        # TODO support more than one node.
         self.executable = yardstick_matches[0]
         self.yardstick_wd = run_remotely(self.node, Command(f"mktemp -d"), mode=RunMode.OUTPUT)
         run_remotely(self.node, Command(
@@ -245,7 +244,6 @@ def run_experiment(path: str, nodes: list, **kwargs) -> None:
 
     yardstick_matches = glob.glob(os.path.join(path, "../../resources/yardstick*.jar"), recursive=False)
     assert len(yardstick_matches) == 1
-    # TODO support more than one node.
 
     experiment_iterations = config["iterations"]
     assert experiment_iterations is not None
