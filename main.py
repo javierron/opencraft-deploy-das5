@@ -86,7 +86,6 @@ def kill(node: str, pid: str) -> None:
         run_remotely(node, Command(f"kill -9 {pid}"))
 
 
-# FIXME deploy procfs sampler
 # FIXME support deployment (num Yardstick nodes) in config
 def run_experiment(path: str, nodes: list, **kwargs) -> None:
     # TODO check the existence of all necessary files and directories before starting the experiment.
@@ -97,6 +96,10 @@ def run_experiment(path: str, nodes: list, **kwargs) -> None:
     config_path = os.path.join(path, "experiment-config.toml")
     assert os.path.isfile(config_path)
     config = toml.load(config_path)
+
+    pecosa_matches = glob.glob(os.path.join(path, "../../resources/pecosa.py"), recursive=False)
+    assert len(pecosa_matches) == 1
+    pecosa = pecosa_matches[0]
 
     # TODO make a function for this, with the required checks.
     opencraft_matches = glob.glob(os.path.join(path, "../../resources/opencraft*.jar"), recursive=False)
@@ -121,10 +124,11 @@ def run_experiment(path: str, nodes: list, **kwargs) -> None:
     except KeyError:
         yardstick_jvm_args = []
     for i in range(experiment_iterations):
-        run_iteration(i, nodes, path, opencraft, opencraft_jvm_args, yardstick, yardstick_jvm_args)
+        run_iteration(i, nodes, path, pecosa, opencraft, opencraft_jvm_args, yardstick, yardstick_jvm_args)
 
 
-def run_iteration(iteration: int, nodes: list, path: str, opencraft: str, opencraft_jvm_args: str, yardstick: str,
+def run_iteration(iteration: int, nodes: list, path: str, pecosa: str, opencraft: str, opencraft_jvm_args: str,
+                  yardstick: str,
                   yardstick_jvm_args: str) -> None:
     iteration_dir = os.path.join(path, str(iteration))
     if os.path.isdir(iteration_dir):
@@ -133,11 +137,15 @@ def run_iteration(iteration: int, nodes: list, path: str, opencraft: str, opencr
         os.mkdir(iteration_dir)
 
     node = nodes[0]
+
     opencraft_wd = run_remotely(node, Command(f"mktemp -d"), mode=RunMode.OUTPUT)
     run_remotely(node, Command(f"cp -r {os.path.join(path, '../../resources/config')} {opencraft_wd}"), debug=True)
     opencraft_pid = run_remotely(node, Command(f"java {' '.join(opencraft_jvm_args)} -jar {opencraft}"),
                                  wd=opencraft_wd, debug=True,
                                  mode=RunMode.FORGET)
+
+    pecosa_log_file = run_remotely(node, Command(f"mktemp -p /local"), mode=RunMode.OUTPUT)
+    pecosa_pid = run_remotely(node, Command(f"python {pecosa} {pecosa_log_file} {opencraft_pid}"), mode=RunMode.FORGET)
 
     run_remotely(node, Command(f"cp {os.path.join(path, '../../resources/yardstick.toml')} {iteration_dir}"),
                  debug=True)
@@ -149,6 +157,8 @@ def run_iteration(iteration: int, nodes: list, path: str, opencraft: str, opencr
     yardstick_thread.join()
     print(datetime.now())
     run_remotely(node, Command(f"rm {os.path.join(iteration_dir, 'yardstick.toml')}"))
+    kill(node, pecosa_pid)
+    run_remotely(node, Command(f"mv {pecosa_log_file} {os.path.join(iteration_dir, 'performance-counters.log')}"))
     kill(node, opencraft_pid)
     run_remotely(node, Command(f"mv {os.path.join(opencraft_wd, 'dyconits.log')} {iteration_dir}"))
     run_remotely(node, Command(
