@@ -18,11 +18,6 @@ class RunMode(Enum):
     FORGET = 4
 
 
-# class Node(object):
-#     def __init__(self, address: str):
-#         self.address = address
-
-
 class Command(object):
     def __init__(self, command: str):
         self.command = command
@@ -64,61 +59,7 @@ def run_remotely(node: str, command: Command, wd=None, debug=False, mode: RunMod
             raise RuntimeError(f"Runmode '{mode}' does not exist.")
 
 
-# class RunningProgram(object):
-#     def __init__(self, program, pid, node, wd, output_dir, remove_wd):
-#         self.program = program
-#         self.pid = pid
-#         self.node = node
-#         self.wd = wd
-#         self.output_dir = output_dir
-#         self.remove_wd = remove_wd
-#
-#     def stop(self):
-#         run_remotely(self.node, Command(f"kill -9 {self.pid}"))
-#
-#     def clean(self):
-#         for file in self.program.output_files:
-#             run_remotely(self.node, Command(f"cp {file} {self.output_dir}"))
-#         if self.remove_wd:
-#             run_remotely(self.node, Command(f"rm -rf {self.wd}"))
-
-
-# class Program(object):
-#     def __init__(self, command: Command, input_files=None, output_files=None):
-#         # TODO add debug file to output files
-#         if output_files is None:
-#             output_files = []
-#         if input_files is None:
-#             input_files = []
-#         self.command = command
-#         self.input_files = input_files
-#         self.output_files = output_files
-#
-#     def run(self, node: Node, output_dir: str, mode: RunMode):
-#         tempdir = True
-#         working_directory = self.command.wd
-#         if working_directory is None:
-#             working_directory = run_remotely(node, Command("mktemp -d"))
-#         else:
-#             tempdir = False
-#         for file in self.input_files:
-#             run_remotely(node, Command(f"cp {file} {working_directory}"))
-#         pid = run_remotely(node, self.command, mode)
-#         running = RunningProgram(self, pid, node, working_directory, output_dir, tempdir)
-#         if mode == RunMode.FORGET:
-#             return running
-#         else:
-#             running.clean()
-
-
-# def run_remotely_async(address: str, command: str, cwd: str = None, debug: bool = False) -> str:
-#     """
-#     Runs the given command remotely. Disconnects the STDIN from the local machine and forwards STDIN and STDOUT to
-#     /dev/null. Return the PID of the remotely started process, such that we can terminate it at some later time.
-#     """
-#     return subprocess.check_output(Command(command, cwd, debug, nohup=True).build(address)).strip().decode()
-
-
+# TODO add debug file to output files
 # TODO copy dyconits.log to iteration dir.
 def run_experiment(path: str, nodes: list, **kwargs) -> None:
     # TODO check the existence of all necessary files and directories before starting the experiment.
