@@ -233,17 +233,7 @@ def run_experiment(path: str, nodes: list, **kwargs) -> None:
     assert os.path.isfile(config_path)
     config = toml.load(config_path)
     assert max(config["deployment"]["yardstick"]) < len(nodes)
-
-    pecosa_matches = glob.glob(os.path.join(path, "../../resources/pecosa.py"), recursive=False)
-    assert len(pecosa_matches) == 1
-
-    # TODO make a function for this, with the required checks.
-    opencraft_matches = glob.glob(os.path.join(path, "../../resources/opencraft*.jar"), recursive=False)
-    assert len(opencraft_matches) == 1
     # TODO support opencraft world folder, through extra resources dir
-
-    yardstick_matches = glob.glob(os.path.join(path, "../../resources/yardstick*.jar"), recursive=False)
-    assert len(yardstick_matches) == 1
 
     experiment_iterations = config["iterations"]
     assert experiment_iterations is not None
