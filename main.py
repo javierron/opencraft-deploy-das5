@@ -110,7 +110,6 @@ class Instance(ABC):
         pass
 
 
-# TODO support infiniband
 class Opencraft(Instance):
 
     def __init__(self, node: str, experiment_path: str, iteration: int, jvm_args: List[str]):
@@ -148,12 +147,22 @@ class Opencraft(Instance):
         run_remotely(self.node, Command(f"rm -rf {self.opencraft_wd}"))
 
 
+def to_ib(address: str) -> str:
+    if address.startswith("10.149."):
+        return address
+    elif address.startswith("node0"):
+        # TODO don't hard-code VU site.
+        return f"10.149.0.{address[-2:]}"
+    else:
+        raise RuntimeError(f"Cannot translate '{address}' to infiniband address.")
+
+
 class Yardstick(Instance):
 
     def __init__(self, node: str, experiment_path: str, iteration: int, jvm_args: List[str], opencraft_node: str):
         super().__init__(node, experiment_path, iteration)
         self.jvm_args = jvm_args
-        self.opencraft_node = opencraft_node
+        self.opencraft_node = to_ib(opencraft_node)
         self.yardstick_wd = None
         self.thread = None
         self.executable = None
