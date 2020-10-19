@@ -135,11 +135,8 @@ def run_iteration(iteration: int, nodes: list, path: str, opencraft: str, opencr
     run_remotely(node, Command(f"cp {os.path.join(path, '../../resources/yardstick.toml')} {iteration_dir}"),
                  debug=True)
     print(datetime.now())
-    # TODO use Yardstick config.
-    yardstick_thread = run_remotely(node,
-                                    Command(
-                                        f"java {yardstick_jvm_args} -jar {yardstick} -e 4 -E bots=1 -E duration=60 -E "
-                                        f"joininterval=5"), wd=iteration_dir, debug=True, mode=RunMode.THREAD)
+    yardstick_thread = run_remotely(node, Command(f"java {yardstick_jvm_args} -jar {yardstick}"), wd=iteration_dir,
+                                    debug=True, mode=RunMode.THREAD)
     # TODO add timeout.
     yardstick_thread.join()
     print(datetime.now())
