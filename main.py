@@ -105,11 +105,20 @@ def run_experiment(path: str, nodes: list, **kwargs) -> None:
     experiment_iterations = config["iterations"]
     assert experiment_iterations is not None
     assert type(experiment_iterations) is int
+    try:
+        opencraft_jvm_args = config["opencraft"]["jvm"]
+    except KeyError:
+        opencraft_jvm_args = []
+    try:
+        yardstick_jvm_args = config["yardstick"]["jvm"]
+    except KeyError:
+        yardstick_jvm_args = []
     for i in range(experiment_iterations):
-        run_iteration(i, nodes, path, opencraft, yardstick)
+        run_iteration(i, nodes, path, opencraft, opencraft_jvm_args, yardstick, yardstick_jvm_args)
 
 
-def run_iteration(iteration: int, nodes: list, path: str, opencraft: str, yardstick: str) -> None:
+def run_iteration(iteration: int, nodes: list, path: str, opencraft: str, opencraft_jvm_args: str, yardstick: str,
+                  yardstick_jvm_args: str) -> None:
     iteration_dir = os.path.join(path, str(iteration))
     if os.path.isdir(iteration_dir):
         return
@@ -119,8 +128,8 @@ def run_iteration(iteration: int, nodes: list, path: str, opencraft: str, yardst
     node = nodes[0]
     opencraft_wd = run_remotely(node, Command(f"mktemp -d"), mode=RunMode.OUTPUT)
     run_remotely(node, Command(f"cp -r {os.path.join(path, '../../resources/config')} {opencraft_wd}"), debug=True)
-    # TODO set the right amount of heap space.
-    opencraft_pid = run_remotely(node, Command(f"java -jar {opencraft}"), wd=opencraft_wd, debug=True,
+    opencraft_pid = run_remotely(node, Command(f"java {' '.join(opencraft_jvm_args)} -jar {opencraft}"),
+                                 wd=opencraft_wd, debug=True,
                                  mode=RunMode.FORGET)
 
     run_remotely(node, Command(f"cp {os.path.join(path, '../../resources/yardstick.toml')} {iteration_dir}"),
@@ -128,8 +137,9 @@ def run_iteration(iteration: int, nodes: list, path: str, opencraft: str, yardst
     print(datetime.now())
     # TODO use Yardstick config.
     yardstick_thread = run_remotely(node,
-                                    Command(f"java -jar {yardstick} -e 4 -E bots=1 -E duration=60 -E joininterval=5"),
-                                    wd=iteration_dir, debug=True, mode=RunMode.THREAD)
+                                    Command(
+                                        f"java {yardstick_jvm_args} -jar {yardstick} -e 4 -E bots=1 -E duration=60 -E "
+                                        f"joininterval=5"), wd=iteration_dir, debug=True, mode=RunMode.THREAD)
     # TODO add timeout.
     yardstick_thread.join()
     print(datetime.now())
