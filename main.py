@@ -4,7 +4,6 @@ import os
 import subprocess
 import threading
 from abc import ABC, abstractmethod
-from datetime import datetime
 from enum import unique, Enum
 from typing import List
 
@@ -49,8 +48,7 @@ class Command(object):
         full_command += [f"{self.command} {output_str} < /dev/null"]
         if nohup:
             full_command += ["&", "echo", "$!"]
-        if debug:
-            print(" ".join(full_command))
+        print(" ".join(full_command))
         return full_command
 
 
@@ -89,7 +87,7 @@ def kill(node: str, pid: str) -> None:
 
 class Instance(ABC):
 
-    def __init__(self, node: str, experiment_path: str, iteration: str):
+    def __init__(self, node: str, experiment_path: str, iteration: int):
         self.node = node
         self.iteration = iteration
         self.experiment_path = experiment_path
@@ -112,9 +110,10 @@ class Instance(ABC):
         pass
 
 
+# TODO support infiniband
 class Opencraft(Instance):
 
-    def __init__(self, node: str, experiment_path: str, iteration: str, jvm_args: List[str]):
+    def __init__(self, node: str, experiment_path: str, iteration: int, jvm_args: List[str]):
         super().__init__(node, experiment_path, iteration)
         assert os.path.isdir(experiment_path)
         self.jvm_args = jvm_args
@@ -145,15 +144,17 @@ class Opencraft(Instance):
     def clean(self):
         run_remotely(self.node, Command(f"mv {os.path.join(self.opencraft_wd, 'dyconits.log')} {self.iteration_dir}"))
         run_remotely(self.node, Command(
-            f"mv {os.path.join(self.opencraft_wd, self.node + '.log')} {os.path.join(self.iteration_dir, self.node + '.opencraft.log')}"))
+            f"mv {os.path.join(self.opencraft_wd, self.node + '.log')} {os.path.join(self.iteration_dir, 'opencraft.' + self.node + '.log')}"))
         run_remotely(self.node, Command(f"rm -rf {self.opencraft_wd}"))
 
 
 class Yardstick(Instance):
 
-    def __init__(self, node, experiment_path, iteration, jvm_args: List[str]):
+    def __init__(self, node: str, experiment_path: str, iteration: int, jvm_args: List[str], opencraft_node: str):
         super().__init__(node, experiment_path, iteration)
         self.jvm_args = jvm_args
+        self.opencraft_node = opencraft_node
+        self.yardstick_wd = None
         self.thread = None
         self.executable = None
 
@@ -163,26 +164,33 @@ class Yardstick(Instance):
         assert len(yardstick_matches) == 1
         # TODO support more than one node.
         self.executable = yardstick_matches[0]
+        self.yardstick_wd = run_remotely(self.node, Command(f"mktemp -d"), mode=RunMode.OUTPUT)
         run_remotely(self.node, Command(
-            f"cp {os.path.join(self.experiment_path, '../../resources/yardstick.toml')} {self.iteration_dir}"),
+            f"cp {os.path.join(self.experiment_path, '../../resources/yardstick.toml')} {self.yardstick_wd}"),
                      debug=True)
 
     def start(self):
         self.thread = run_remotely(self.node,
-                                   Command(f"java {' '.join(self.jvm_args)} -jar {self.executable}"),
-                                   wd=self.iteration_dir,
+                                   Command(
+                                       f"java {' '.join(self.jvm_args)} -jar {self.executable} --host {self.opencraft_node}"),
+                                   wd=self.yardstick_wd,
                                    debug=True, mode=RunMode.THREAD)
 
     def stop(self):
         self.thread.join()
 
     def clean(self):
-        run_remotely(self.node, Command(f"rm {os.path.join(self.iteration_dir, 'yardstick.toml')}"))
+        run_remotely(self.node, Command(
+            f"mv {os.path.join(self.yardstick_wd, self.node + '.log')} {os.path.join(self.iteration_dir, 'yardstick.' + self.node + '.log')}"))
+        workload_dir = os.path.join(self.yardstick_wd, 'workload')
+        run_remotely(self.node, Command(
+            f"[ ! -f {workload_dir} ] || mv {workload_dir} {os.path.join(self.iteration_dir, 'yardstick.workload.' + self.node)}"))
+        run_remotely(self.node, Command(f"rm -rf {self.yardstick_wd}"))
 
 
 class Pecosa(Instance):
 
-    def __init__(self, node: str, experiment_path: str, iteration: str, opencraft_pid):
+    def __init__(self, node: str, experiment_path: str, iteration: int, opencraft_pid):
         super().__init__(node, experiment_path, iteration)
         self.opencraft_pid = opencraft_pid
         self.executable = None
@@ -207,7 +215,6 @@ class Pecosa(Instance):
                      Command(f"mv {self.log_file} {os.path.join(self.iteration_dir, 'performance-counters.log')}"))
 
 
-# FIXME support deployment (num Yardstick nodes) in config
 def run_experiment(path: str, nodes: list, **kwargs) -> None:
     # TODO check the existence of all necessary files and directories before starting the experiment.
     assert len(path) > 0
@@ -217,21 +224,19 @@ def run_experiment(path: str, nodes: list, **kwargs) -> None:
     config_path = os.path.join(path, "experiment-config.toml")
     assert os.path.isfile(config_path)
     config = toml.load(config_path)
+    assert max(config["deployment"]["yardstick"]) < len(nodes)
 
     pecosa_matches = glob.glob(os.path.join(path, "../../resources/pecosa.py"), recursive=False)
     assert len(pecosa_matches) == 1
-    pecosa = pecosa_matches[0]
 
     # TODO make a function for this, with the required checks.
     opencraft_matches = glob.glob(os.path.join(path, "../../resources/opencraft*.jar"), recursive=False)
     assert len(opencraft_matches) == 1
-    opencraft = opencraft_matches[0]
     # TODO support opencraft world folder, through extra resources dir
 
     yardstick_matches = glob.glob(os.path.join(path, "../../resources/yardstick*.jar"), recursive=False)
     assert len(yardstick_matches) == 1
     # TODO support more than one node.
-    yardstick = yardstick_matches[0]
 
     experiment_iterations = config["iterations"]
     assert experiment_iterations is not None
@@ -245,13 +250,13 @@ def run_experiment(path: str, nodes: list, **kwargs) -> None:
     except KeyError:
         yardstick_jvm_args = []
     for i in range(experiment_iterations):
-        run_iteration(i, nodes, path, pecosa, opencraft, opencraft_jvm_args, yardstick, yardstick_jvm_args)
+        run_iteration(i, nodes, path, opencraft_jvm_args, yardstick_jvm_args, config)
 
 
-def run_iteration(iteration: int, nodes: list, path: str, pecosa: str, opencraft: str,
-                  opencraft_jvm_args: str,
-                  yardstick: str,
-                  yardstick_jvm_args: str) -> None:
+def run_iteration(iteration: int, nodes: list, path: str,
+                  opencraft_jvm_args: List[str],
+                  yardstick_jvm_args: List[str],
+                  config) -> None:
     iteration_dir = os.path.join(path, str(iteration))
     if os.path.isdir(iteration_dir):
         return
@@ -260,33 +265,33 @@ def run_iteration(iteration: int, nodes: list, path: str, pecosa: str, opencraft
 
     node = nodes[0]
 
-    opencraft_wd = run_remotely(node, Command(f"mktemp -d"), mode=RunMode.OUTPUT)
-    run_remotely(node, Command(f"cp -r {os.path.join(path, '../../resources/config')} {opencraft_wd}"), debug=True)
-    opencraft_pid = run_remotely(node, Command(f"java {' '.join(opencraft_jvm_args)} -jar {opencraft}"),
-                                 wd=opencraft_wd, debug=True,
-                                 mode=RunMode.FORGET)
+    opencraft = Opencraft(node, path, iteration, opencraft_jvm_args)
+    opencraft.setup()
+    opencraft.start()
+    pecosa = Pecosa(node, path, iteration, opencraft.pid)
+    pecosa.setup()
+    pecosa.start()
 
-    pecosa_log_file = run_remotely(node, Command(f"mktemp -p /local"), mode=RunMode.OUTPUT)
-    pecosa_pid = run_remotely(node, Command(f"python {pecosa} {pecosa_log_file} {opencraft_pid}"),
-                              mode=RunMode.FORGET)
+    yardstick_instances = []
+    for index in config["deployment"]["yardstick"]:
+        node = nodes[index]
+        yardstick = Yardstick(node, path, iteration, yardstick_jvm_args, opencraft.node)
+        yardstick.setup()
+        yardstick_instances.append(yardstick)
 
-    run_remotely(node, Command(f"cp {os.path.join(path, '../../resources/yardstick.toml')} {iteration_dir}"),
-                 debug=True)
-    print(datetime.now())
-    yardstick_thread = run_remotely(node, Command(f"java {' '.join(yardstick_jvm_args)} -jar {yardstick}"),
-                                    wd=iteration_dir,
-                                    debug=True, mode=RunMode.THREAD)
-    # TODO add timeout.
-    yardstick_thread.join()
-    print(datetime.now())
-    run_remotely(node, Command(f"rm {os.path.join(iteration_dir, 'yardstick.toml')}"))
-    kill(node, pecosa_pid)
-    run_remotely(node, Command(f"mv {pecosa_log_file} {os.path.join(iteration_dir, 'performance-counters.log')}"))
-    kill(node, opencraft_pid)
-    run_remotely(node, Command(f"mv {os.path.join(opencraft_wd, 'dyconits.log')} {iteration_dir}"))
-    run_remotely(node, Command(
-        f"mv {os.path.join(opencraft_wd, node + '.log')} {os.path.join(iteration_dir, node + '.opencraft.log')}"))
-    run_remotely(node, Command(f"rm -rf {opencraft_wd}"))
+    for yi in yardstick_instances:
+        yi.start()
+    for yi in yardstick_instances:
+        # TODO change call to signal that Yardstick.stop simply waits.
+        yi.stop()
+
+    pecosa.stop()
+    opencraft.stop()
+
+    pecosa.clean()
+    opencraft.clean()
+    for yi in yardstick_instances:
+        yi.clean()
 
 
 if __name__ == '__main__':
