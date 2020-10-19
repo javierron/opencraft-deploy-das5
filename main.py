@@ -86,6 +86,8 @@ def kill(node: str, pid: str) -> None:
         run_remotely(node, Command(f"kill -9 {pid}"))
 
 
+# FIXME deploy procfs sampler
+# FIXME support deployment (num Yardstick nodes) in config
 def run_experiment(path: str, nodes: list, **kwargs) -> None:
     # TODO check the existence of all necessary files and directories before starting the experiment.
     assert len(path) > 0
