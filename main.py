@@ -111,7 +111,6 @@ def run_remotely(node: str, command: Command, wd=None, debug=False, mode: RunMod
 #             running.clean()
 
 
-# TODO Use opencraft.yml
 # def run_remotely_async(address: str, command: str, cwd: str = None, debug: bool = False) -> str:
 #     """
 #     Runs the given command remotely. Disconnects the STDIN from the local machine and forwards STDIN and STDOUT to
@@ -157,9 +156,11 @@ def run_iteration(iteration: int, nodes: list, path: str, opencraft: str, yardst
         os.mkdir(iteration_dir)
 
     node = nodes[0]
+    run_remotely(node, Command(f"cp -r {os.path.join(path, '../../resources/config')} {iteration_dir}"), debug=True)
     # TODO set the right amount of heap space.
     opencraft_pid = run_remotely(node, Command(f"java -jar {opencraft}"), wd=iteration_dir, debug=True,
                                  mode=RunMode.FORGET)
+
     run_remotely(node, Command(f"cp {os.path.join(path, '../../resources/yardstick.toml')} {iteration_dir}"),
                  debug=True)
     print(datetime.now())
