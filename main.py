@@ -79,6 +79,13 @@ def run_remotely(node: str, command: Command, wd=None, debug=False, mode: RunMod
             raise RuntimeError(f"Runmode '{mode}' does not exist.")
 
 
+def kill(node: str, pid: str) -> None:
+    t = run_remotely(node, Command(f"kill {pid}; wait {pid}"), mode=RunMode.THREAD)
+    t.join(timeout=10.0)
+    if t.is_alive():
+        run_remotely(node, Command(f"kill -9 {pid}"))
+
+
 def run_experiment(path: str, nodes: list, **kwargs) -> None:
     # TODO check the existence of all necessary files and directories before starting the experiment.
     assert len(path) > 0
@@ -140,8 +147,7 @@ def run_iteration(iteration: int, nodes: list, path: str, opencraft: str, opencr
     yardstick_thread.join()
     print(datetime.now())
     run_remotely(node, Command(f"rm {os.path.join(iteration_dir, 'yardstick.toml')}"))
-    # TODO make kill friendly
-    run_remotely(node, Command(f"kill -9 {opencraft_pid}"))
+    kill(node, opencraft_pid)
     run_remotely(node, Command(f"mv {os.path.join(opencraft_wd, 'dyconits.log')} {iteration_dir}"))
     run_remotely(node, Command(
         f"mv {os.path.join(opencraft_wd, node + '.log')} {os.path.join(iteration_dir, node + '.opencraft.log')}"))
