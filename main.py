@@ -157,7 +157,7 @@ def to_ib(address: str) -> str:
         return address
     elif address.startswith("node0"):
         # TODO don't hard-code VU site.
-        return f"10.149.0.{address[-2:]}"
+        return f"10.149.0.{int(address[-2:])}"
     else:
         raise RuntimeError(f"Cannot translate '{address}' to infiniband address.")
 
