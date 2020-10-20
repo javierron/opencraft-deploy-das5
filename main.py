@@ -224,8 +224,9 @@ class Pecosa(Instance):
         kill(self.node, self.pid)
 
     def clean(self):
+        filename = f"pecosa.{self.node}.log"
         run_remotely(self.node,
-                     Command(f"mv {self.log_file} {os.path.join(self.iteration_dir, 'performance-counters.log')}"))
+                     Command(f"mv {self.log_file} {os.path.join(self.iteration_dir, filename)}"))
 
 
 def run_experiment(path: str, nodes: list, **kwargs) -> None:
