@@ -141,7 +141,8 @@ class Opencraft(Instance):
         kill(self.node, self.pid)
 
     def clean(self):
-        run_remotely(self.node, Command(f"mv {os.path.join(self.opencraft_wd, 'dyconits.log')} {self.iteration_dir}"))
+        dyconits_log = os.path.join(self.opencraft_wd, 'dyconits.log')
+        run_remotely(self.node, Command(f"[ ! -f {dyconits_log} ] || mv {dyconits_log} {self.iteration_dir}"))
         run_remotely(self.node, Command(
             f"mv {os.path.join(self.opencraft_wd, self.node + '.log')} {os.path.join(self.iteration_dir, 'opencraft.' + self.node + '.log')}"))
         run_remotely(self.node, Command(f"rm -rf {self.opencraft_wd}"))
