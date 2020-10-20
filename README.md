@@ -15,23 +15,44 @@ This allows us to simplify the scripts.
 
 ```
 experiments
-- <timestamp>-<name>
-|- resources
-||- opencraft.jar
-||- yardstick.jar
-|- results
-||- <experiment-name>
-|||- config.toml
-|||- 0
-||||- opencraft.result
-||||- yardstick.result
-||||- dyconit.result
+- <experiment-collection-name>  # create a copy of this when updating static assets (e.g., in case you find and fix a bug in the system under test)
+  - resources
+    - opencraft.jar
+    - yardstick.jar
+  - <experiment-name>           # create a copy of this if you want to conduct a new experiment
+    - resources
+      - yardstick.toml
+      - experiment-config.toml  # experiment configuration, including number of experiment iterations
+    - <configuration-name>      # create a copy of this if you want to add a configuration to your experiment
+      - resources
+        - opencraft.yml
+      - 0                       # results directory; created automatically based on the number of experiment iterations
+        - opencraft.node001.log
+        - dyconit.node001.log
+        - players.node001.log
+        - yardstick.node002.log
+        - yardstick.node003.log
 ```
+
+Advantages of this structure include:
+
+- Experiment results are easy to parse. For each experiment, loop over the configuration
+directories (`<configuration-name>`) and iteration directories (`0-99`), append the configuration name and iteration
+to the results file, and concatenate all results files.
+- Experiments are easy to repeat if something goes wrong. Simply copy the experiment (collection) directory,
+fix whatever is broken, and rerun this experiment deployment tool.
+
+Disadvantages of this structure include:
+
+- The high level of nesting can make navigation cumbersome. Automate everything!
+
+
 ## Preparing an Experiment
 
-If this is your first experiment, create a `<timestamp>-<name>` directory in your `experiments` directory.
-If you have already completed experiments, create a new `<timestamp>-<name>` directory if you want to change any of your
-resources. If not, you can reuse the existing directory.
+Create the following directories somewhere under `/var/scratch/<username>/`:
+
+1. `opencraft-experiments`
+2. `opencraft-experiments/my-first-experiments`
 
 Populate the `resources` directory with the resources that will remain static across all experiments.
 Because we are evaluating different dyconit policies, we can (re)use a single Opencraft JAR, and only change
