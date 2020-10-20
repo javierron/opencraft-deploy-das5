@@ -143,6 +143,8 @@ class Opencraft(Instance):
     def clean(self):
         dyconits_log = os.path.join(self.opencraft_wd, 'dyconits.log')
         run_remotely(self.node, Command(f"[ ! -f {dyconits_log} ] || mv {dyconits_log} {self.iteration_dir}"))
+        player_log = os.path.join(self.opencraft_wd, 'players.log')
+        run_remotely(self.node, Command(f"[ ! -f {player_log} ] || mv {player_log} {self.iteration_dir}"))
         run_remotely(self.node, Command(
             f"mv {os.path.join(self.opencraft_wd, self.node + '.log')} {os.path.join(self.iteration_dir, 'opencraft.' + self.node + '.log')}"))
         run_remotely(self.node, Command(f"rm -rf {self.opencraft_wd}"))
