@@ -1,5 +1,6 @@
 import argparse
 import fnmatch
+import getpass
 import os
 import subprocess
 import threading
@@ -330,12 +331,28 @@ def _run_iteration(iteration, opencraft_node, yardstick_nodes, opencraft_jvm_arg
         yi.clean()
 
 
+def new_exp_group(name: str, path: str, **kwargs):
+    if not os.path.isdir(path):
+        os.mkdir(path)
+    exp_group_dir = os.path.join(path, name)
+    if not os.path.isdir(exp_group_dir):
+        os.mkdir(exp_group_dir)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     sp = parser.add_subparsers()
+
     run = sp.add_parser("run")
     run.add_argument("path", help="path to experiment")
     run.add_argument("nodes", nargs="+", help="hostnames of nodes to use for experiment")
     run.set_defaults(func=run_experiment)
+
+    new = sp.add_parser("new")
+    new.add_argument("name", help="experiment group name")
+    new.add_argument("--path", help="path where experiment group should be created",
+                     default=f"/var/scratch/{getpass.getuser()}/opencraft-experiments")
+    new.set_defaults(func=new_exp_group)
+
     args = parser.parse_args()
     args.func(**vars(args))
