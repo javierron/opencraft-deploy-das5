@@ -11,6 +11,8 @@ from typing import List
 import toml
 
 _RESOURCES_DIR_NAME = "resources"
+_RESULTS_DIR_NAME = "results"
+_SPECIAL_DIRS = [_RESULTS_DIR_NAME, _RESOURCES_DIR_NAME]
 
 
 @unique
@@ -276,7 +278,7 @@ def run_experiment(path: str, reservation: int, **kwargs) -> None:
     assert os.path.isdir(exp_group_path)
 
     for entry in os.listdir(path):
-        if entry != _RESOURCES_DIR_NAME and os.path.isdir(os.path.join(path, entry)):
+        if entry not in _SPECIAL_DIRS and os.path.isdir(os.path.join(path, entry)):
             run_configuration(reservation, os.path.join(path, entry), exp_group_path)
 
 
