@@ -1,5 +1,6 @@
 import argparse
 import fnmatch
+import getpass
 import os
 import subprocess
 import threading
@@ -27,6 +28,7 @@ class Output(Enum):
     STRING = 2
 
 
+# TODO use pathlib module
 class Command(object):
     def __init__(self, command: str):
         self.command = command
@@ -78,6 +80,17 @@ def run_remotely(node: str, command: Command, wd=None, debug=False, mode: RunMod
             return t
         else:
             raise RuntimeError(f"Runmode '{mode}' does not exist.")
+
+
+def get_nodes(reservation: int) -> List[str]:
+    llist = subprocess.check_output(["preserve", "-llist"]).strip().decode()
+    for line in llist.split('\n'):
+        split = line.split('\t')
+        if len(split) > 1:
+            split = [part.strip() for part in split]
+            if split[0] == str(reservation) and split[1] == getpass.getuser():
+                return split[-1].split()
+    return []
 
 
 def kill(node: str, pid: str) -> None:
@@ -255,21 +268,19 @@ class Pecosa(Instance):
                      Command(f"mv {self.log_file} {os.path.join(self.path, filename)}"))
 
 
-def run_experiment(path: str, nodes: list, **kwargs) -> None:
+def run_experiment(path: str, reservation: int, **kwargs) -> None:
     # TODO check the existence of all necessary files and directories before starting the experiment.
     assert len(path) > 0
     assert os.path.isdir(path)
     exp_group_path = os.path.dirname(path)
     assert os.path.isdir(exp_group_path)
 
-    assert len(nodes) > 0
-
     for entry in os.listdir(path):
         if entry != _RESOURCES_DIR_NAME and os.path.isdir(os.path.join(path, entry)):
-            run_configuration(nodes, os.path.join(path, entry), exp_group_path)
+            run_configuration(reservation, os.path.join(path, entry), exp_group_path)
 
 
-def run_configuration(nodes: List[str], configuration_path: str, root_path: str):
+def run_configuration(reservation: int, configuration_path: str, root_path: str):
     config_file = find_resource(configuration_path, "experiment-config.toml", root_path=root_path)
     assert config_file is not None
     config = toml.load(config_file)
@@ -278,11 +289,18 @@ def run_configuration(nodes: List[str], configuration_path: str, root_path: str)
     assert type(num_iterations) is int
     for i in range(num_iterations):
         iteration_path = os.path.join(configuration_path, str(i))
-        run_iteration(nodes, iteration_path, root_path, i)
+        run_iteration(reservation, iteration_path, root_path, i)
 
 
-def run_iteration(nodes: List[str], path: str, root_path: str, iteration: int) -> None:
-    if not os.path.isdir(path):
+def run_iteration(reservation: int, path: str, root_path: str, iteration: int) -> None:
+    nodes = get_nodes(reservation)
+    if len(nodes) <= 0:
+        print(f"Reservation {reservation} not found. Skipping...")
+        return
+    if os.path.isdir(path):
+        print(f"Results for iteration {iteration} already exist at {path}. Skipping...")
+        return
+    else:
         os.mkdir(path)
 
     config_path = find_resource(path, "experiment-config.toml", root_path=root_path)
@@ -335,7 +353,7 @@ if __name__ == '__main__':
     sp = parser.add_subparsers()
     run = sp.add_parser("run")
     run.add_argument("path", help="path to experiment")
-    run.add_argument("nodes", nargs="+", help="hostnames of nodes to use for experiment")
+    run.add_argument("reservation", help="hostnames of nodes to use for experiment")
     run.set_defaults(func=run_experiment)
     args = parser.parse_args()
     args.func(**vars(args))
