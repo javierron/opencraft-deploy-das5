@@ -1,6 +1,7 @@
 import argparse
 import fnmatch
 import getpass
+import glob
 import os
 import subprocess
 import threading
@@ -12,7 +13,8 @@ import toml
 
 _RESOURCES_DIR_NAME = "resources"
 _RESULTS_DIR_NAME = "results"
-_SPECIAL_DIRS = [_RESULTS_DIR_NAME, _RESOURCES_DIR_NAME]
+_PLOTS_DIR_NAME = "plots"
+_SPECIAL_DIRS = [_PLOTS_DIR_NAME, _RESULTS_DIR_NAME, _RESOURCES_DIR_NAME]
 
 
 @unique
@@ -350,12 +352,57 @@ def _run_iteration(iteration, opencraft_node, yardstick_nodes, opencraft_jvm_arg
         yi.clean()
 
 
+def collect_results(path: str, **kwargs):
+    collect_results_for_prefix(path, file_prefix="pecosa")
+    collect_results_for_prefix(path, file_prefix="opencraft-events")
+    collect_results_for_prefix(path, file_prefix="dyconits")
+
+
+def collect_results_for_prefix(path: str, file_prefix: str):
+    assert os.path.isdir(path)
+    results_dir = os.path.join(path, _RESULTS_DIR_NAME)
+    if not os.path.isdir(results_dir):
+        os.mkdir(results_dir)
+    result_files = []
+    for configuration_dirname in os.listdir(path):
+        configuration_dir = os.path.join(path, configuration_dirname)
+        if os.path.basename(configuration_dir) not in _SPECIAL_DIRS and os.path.isdir(configuration_dir):
+            pecosa_glob_string = os.path.join(configuration_dir, f"**/{file_prefix}.node*.log")
+            print(pecosa_glob_string)
+            result_files += glob.glob(pecosa_glob_string, recursive=True)
+    results_file = os.path.join(results_dir, f"{file_prefix}.log")
+    first = True
+    print(f"merging {result_files}")
+    with open(results_file, "w+") as fout:
+        for partial_results_file in result_files:
+            node = partial_results_file.split(".")[-2]
+            iteration_dir = os.path.dirname(partial_results_file)
+            iteration = os.path.basename(iteration_dir)
+            config = os.path.basename(os.path.dirname(iteration_dir))
+            with open(partial_results_file, "r") as fin:
+                header = fin.readline().strip().split("\t")
+                print(header)
+                header += ["node", "iteration", "config"]
+                if first:
+                    fout.write("\t".join(header) + os.linesep)
+                    first = False
+                lines = ["\t".join(line.strip().split("\t") + [node, iteration, config]) + os.linesep for line in
+                         fin.readlines()]
+                fout.writelines(lines)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     sp = parser.add_subparsers()
+
     run = sp.add_parser("run")
     run.add_argument("path", help="path to experiment")
     run.add_argument("reservation", help="hostnames of nodes to use for experiment")
     run.set_defaults(func=run_experiment)
+
+    collect = sp.add_parser("collect")
+    collect.add_argument("path", help="path to experiment")
+    collect.set_defaults(func=collect_results)
+
     args = parser.parse_args()
     args.func(**vars(args))
