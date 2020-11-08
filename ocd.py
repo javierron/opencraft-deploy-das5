@@ -13,7 +13,7 @@ import toml
 
 _RESOURCES_DIR_NAME = "resources"
 _RESULTS_DIR_NAME = "results"
-_PLOTS_DIR_NAME = "plots"
+_PLOTS_DIR_NAME = "figures"
 _SPECIAL_DIRS = [_PLOTS_DIR_NAME, _RESULTS_DIR_NAME, _RESOURCES_DIR_NAME]
 
 
@@ -120,7 +120,7 @@ def find_resource(path: str, pattern: str, file: bool = True, root_path: str = "
             if fnmatch.fnmatch(entry, pattern):
                 resource = os.path.realpath(os.path.join(resource_path, entry))
                 return resource
-    if path == root_path:
+    if os.path.samefile(path, root_path):
         return None
     return find_resource(os.path.dirname(path), pattern, file, root_path)
 
@@ -186,8 +186,8 @@ class Opencraft(Instance):
         dyconits_log = os.path.join(self.opencraft_wd, 'dyconits.log')
         dyconits_log_dst = os.path.join(self.path, f"dyconits.{self.node}.log")
         run_remotely(self.node, Command(f"[ ! -f {dyconits_log} ] || mv {dyconits_log} {dyconits_log_dst}"))
-        player_log = os.path.join(self.opencraft_wd, 'players.log')
-        player_log_dst = os.path.join(self.path, f"players.{self.node}.log")
+        player_log = os.path.join(self.opencraft_wd, 'opencraft-events.log')
+        player_log_dst = os.path.join(self.path, f"opencraft-events.{self.node}.log")
         run_remotely(self.node, Command(f"[ ! -f {player_log} ] || mv {player_log} {player_log_dst}"))
         run_remotely(self.node, Command(
             f"mv {os.path.join(self.opencraft_wd, self.node + '.log')} {os.path.join(self.path, 'opencraft.' + self.node + '.log')}"))
@@ -391,6 +391,46 @@ def collect_results_for_prefix(path: str, file_prefix: str):
                 fout.writelines(lines)
 
 
+def is_number(something) -> bool:
+    try:
+        float(something)
+        return True
+    except ValueError:
+        return False
+
+
+def inspect_result(path: str, **kwargs):
+    assert os.path.isfile(path)
+    file_columns = 0
+    file_types = []
+    line_number = 0
+    faulty_lines = []
+    with open(path) as fin:
+        for line in fin:
+            line_number += 1
+            line_parts = line.strip().split("\t")
+            num_columns = len(line_parts)
+            if line_number == 1:
+                file_columns = num_columns
+            else:
+                types = ["number" if is_number(x) else "string" for x in line_parts]
+                if num_columns != file_columns:
+                    print(f"Line {line_number} has {num_columns} columns. Expected {file_columns}")
+                    faulty_lines.append(line_number)
+                    continue
+                if line_number == 2:
+                    file_types = types
+                elif types != file_types:
+                    print(f"Line {line_number} has types {types}. Expected {file_types}")
+                    faulty_lines.append(line_number)
+                    continue
+    if len(faulty_lines) > 0:
+        print("If you are certain the lines above can/should be deleted, you can run:")
+        # sed -i.bak -e '5,10d;12d' file
+        formatted_line_numbers = ";".join([f"{x}d" for x in faulty_lines])
+        print(f"sed -i.bak -e '{formatted_line_numbers}' {path}")
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     sp = parser.add_subparsers()
@@ -403,6 +443,10 @@ if __name__ == '__main__':
     collect = sp.add_parser("collect")
     collect.add_argument("path", help="path to experiment")
     collect.set_defaults(func=collect_results)
+
+    inspect = sp.add_parser("inspect")
+    inspect.add_argument("path", help="path to results file")
+    inspect.set_defaults(func=inspect_result)
 
     args = parser.parse_args()
     args.func(**vars(args))
