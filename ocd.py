@@ -7,7 +7,9 @@ import glob
 import os
 import subprocess
 import threading
+import time
 from abc import ABC, abstractmethod
+from datetime import datetime
 from enum import unique, Enum
 from typing import List
 
@@ -88,15 +90,36 @@ def run_remotely(node: str, command: Command, wd=None, debug=False, mode: RunMod
             raise RuntimeError(f"Runmode '{mode}' does not exist.")
 
 
-def get_nodes(reservation: int) -> List[str]:
+def get_reservation(reservation: int) -> List[str]:
     llist = subprocess.check_output(["preserve", "-llist"]).strip().decode()
     for line in llist.split('\n'):
         split = line.split('\t')
         if len(split) > 1:
             split = [part.strip() for part in split]
             if split[0] == str(reservation) and split[1] == getpass.getuser():
-                return split[-1].split()
+                return split
     return []
+
+
+def get_nodes(reservation: int) -> List[str]:
+    info = get_reservation(reservation)
+    if len(info) > 0:
+        return info[-1].split()
+    return []
+
+
+def wait_for_reservation_ready(reservation: int) -> None:
+    ready = False
+    while not ready:
+        info = get_reservation(reservation)
+        if len(info) == 0:
+            raise ValueError(f"Reservation {reservation} does not exist for current user!")
+        reservation_status = info[6]
+        if reservation_status == "R":
+            ready = True
+        else:
+            print(f"Waiting for reservation to become ready. Currently ({datetime.now()}): {reservation_status}")
+            time.sleep(5)
 
 
 def kill(node: str, pid: str) -> None:
@@ -299,6 +322,7 @@ def run_configuration(reservation: int, configuration_path: str, root_path: str)
 
 
 def run_iteration(reservation: int, path: str, root_path: str, iteration: int) -> None:
+    wait_for_reservation_ready(reservation)
     nodes = get_nodes(reservation)
     if len(nodes) <= 0:
         print(f"Reservation {reservation} not found. Skipping...")
