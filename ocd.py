@@ -388,7 +388,7 @@ def collect_results_for_prefix(path: str, file_prefix: str):
                 for line in fin.readlines():
                     output_line = [""] * len(headers)
                     values = line.strip().split("\t") + [node, iteration, config]
-                    for i in range(len(headers)):
+                    for i in range(len(values)):
                         output_line[header_mapping[i]] = values[i]
                     fout.write("\t".join(output_line) + os.linesep)
 
