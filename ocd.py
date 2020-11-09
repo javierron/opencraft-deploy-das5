@@ -370,27 +370,39 @@ def collect_results_for_prefix(path: str, file_prefix: str):
         configuration_dir = os.path.join(path, configuration_dirname)
         if os.path.basename(configuration_dir) not in _SPECIAL_DIRS and os.path.isdir(configuration_dir):
             pecosa_glob_string = os.path.join(configuration_dir, f"**/{file_prefix}.node*.log")
-            print(pecosa_glob_string)
             result_files += glob.glob(pecosa_glob_string, recursive=True)
     results_file = os.path.join(results_dir, f"{file_prefix}.log")
-    first = True
     print(f"merging {result_files}")
+    headers = get_all_headers(result_files)
+    headers += ["node", "iteration", "config"]
     with open(results_file, "w+") as fout:
+        fout.write("\t".join(headers) + os.linesep)
         for partial_results_file in result_files:
             node = partial_results_file.split(".")[-2]
             iteration_dir = os.path.dirname(partial_results_file)
             iteration = os.path.basename(iteration_dir)
             config = os.path.basename(os.path.dirname(iteration_dir))
             with open(partial_results_file, "r") as fin:
-                header = fin.readline().strip().split("\t")
-                print(header)
-                header += ["node", "iteration", "config"]
-                if first:
-                    fout.write("\t".join(header) + os.linesep)
-                    first = False
-                lines = ["\t".join(line.strip().split("\t") + [node, iteration, config]) + os.linesep for line in
-                         fin.readlines()]
-                fout.writelines(lines)
+                header = fin.readline().strip().split("\t") + ["node", "iteration", "config"]
+                header_mapping = [headers.index(column) for column in header]
+                for line in fin.readlines():
+                    output_line = [""] * len(headers)
+                    values = line.strip().split("\t") + [node, iteration, config]
+                    for i in range(len(headers)):
+                        output_line[header_mapping[i]] = values[i]
+                    fout.write("\t".join(output_line) + os.linesep)
+
+
+def get_all_headers(result_files):
+    headers = []
+    for partial_results_file in result_files:
+        assert os.path.isfile(partial_results_file)
+        with open(partial_results_file, "r") as fin:
+            header = fin.readline().strip().split("\t")
+            for column in header:
+                if column not in headers:
+                    headers.append(column)
+    return headers
 
 
 def is_number(something) -> bool:
