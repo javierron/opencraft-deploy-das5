@@ -5,6 +5,7 @@ import fnmatch
 import getpass
 import glob
 import os
+import pathlib
 import subprocess
 import threading
 import time
@@ -301,7 +302,7 @@ def run_experiment(path: str, reservation: int, **kwargs) -> None:
     # TODO check the existence of all necessary files and directories before starting the experiment.
     assert len(path) > 0
     assert os.path.isdir(path)
-    exp_group_path = os.path.dirname(path)
+    exp_group_path = str(pathlib.Path(path).parent)
     assert os.path.isdir(exp_group_path)
 
     for entry in os.listdir(path):
