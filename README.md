@@ -25,7 +25,8 @@ experiments
       - experiment-config.toml  # experiment configuration, including number of experiment iterations
     - <configuration-name>      # create a copy of this if you want to add a configuration to your experiment
       - resources
-        - opencraft.yml
+        - config
+          - opencraft.yml
       - 0                       # results directory; created automatically based on the number of experiment iterations
         - opencraft.node001.log
         - dyconit.node001.log
