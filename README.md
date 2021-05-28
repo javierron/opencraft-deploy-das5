@@ -50,40 +50,49 @@ Disadvantages of this structure include:
 
 ## Preparing an Experiment
 
-Create the following directories somewhere under `/var/scratch/<username>/`:
+Create the following directories somewhere under `/var/scratch/<username>/`, each one with a corresponding nested `resources` directory:
 
 1. `opencraft-experiments`
-2. `opencraft-experiments/my-first-experiments`
+2. `opencraft-experiments/my-first-experiment`
+3. `opencraft-experiments/my-first-experiment/100players-policy1`
 
-Populate the `resources` directory with the resources that will remain static across all experiments.
-Because we are evaluating different dyconit policies, we can (re)use a single Opencraft JAR, and only change
-its configuration. Therefore, we can place the Opencraft JAR in the `resources` directory.
+Populate the `resources` directories with the resources needed for the experiment. 
 
-In the `results` directory, we create a directory that describes our experiment.
-For example, `100players-policy1`, indicating that the workload consists of 100 players, and that Opencraft is using
-dyconit policy 1.
-In this directory we place our Yardstick configuration file, configured to connect 100 players,
-and our Opencraft configuration file, configured to use policy 1.
+Since there is a `resources` directory in every level of the hierarchy, we can use specific resources for each experiment, 
+as well as reuse static resources between experiments, e.g.: Because we are evaluating different dyconit policies, we can 
+(re)use a single Opencraft JAR, by placing it at the top level of the hierarchy, and only change its configuration. 
+Therefore, we can place the Opencraft JAR in the `opencraft-experiments/resources` directory.
 
-Finally, create a `config.toml` file that indicates how many nodes are required to run Yardstick,
-and how many iterations of the experiment should be performed. For example:
+Also in `opencraft-experiments/my-first-experiment/resources`, we create a `experiment-config.toml` file that indicates in which nodes
+Yardstick will be run on, and how many iterations of the experiment should be performed. For example:
+
 
 ```
 iterations = 50
 
-[nodes]
-yardstick = 1
+[deployment]
+yardstick = [1, 2] # array of nodes to run yardstick on. Opencraft will run on node 0.
 ```
+
+
+The `100players-policy1` directory describes a specific configuration for the experiment, 
+in this case the name indicates that the workload consists of 100 players, and that Opencraft is using dyconit policy 1.
+Accordingly, in its own `resources` directory we place our Yardstick configuration file, configured to connect 100 players, 
+and our Opencraft configuration file, configured to use policy 1. 
+
+We can have several configurations per experiment, and each one will be run the number of iterations described
+in the `experiment-config.toml` file.
+
 
 ## Running Experiments
 
 After preparing an experiment, running it is simple:
 
 ```
-python main.py run /path/to/<timestamp>-<name>/results/<experiment-name> hostname1 [hostname2...]
+python ocd.py run /path/to/<experiment-collection-name>/<experiment-name> <reservation-id>
 ```
 
-The hostname(s) are the machines reserved for the experiment.
-You can reserve machines on the DAS-5 using the command `preserve`.
+The `reservation-id` identifies the machines reserved for the experiment.
+You can reserve machines on the DAS-5 using the command `preserve -np <number-of-nodes> -t <time-in-seconds>`.
 
 ## Plotting Experiment Results
