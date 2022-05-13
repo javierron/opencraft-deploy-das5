@@ -42,8 +42,12 @@ class Command(object):
     def __init__(self, command: str):
         self.command = command
 
-    def build(self, address, wd=None, nohup=False, output: Output = Output.NULL, debug=False) -> List[str]:
+    def build(self, address, wd=None, nohup=False, output: Output = Output.NULL, debug=False, env=[]) -> List[str]:
         full_command = ["ssh", address]
+
+        for (env, val) in env:
+            full_command += ["export", f"{env}={val}", ";"]
+
         if wd is not None:
             full_command += ["cd", wd, ";"]
         if nohup:
@@ -65,7 +69,7 @@ class Command(object):
         return full_command
 
 
-def run_remotely(node: str, command: Command, wd=None, debug=False, mode: RunMode = RunMode.OUTPUT):
+def run_remotely(node: str, command: Command, wd=None, debug=False, mode: RunMode = RunMode.OUTPUT, env=[]):
     if mode == mode.OUTPUT:
         output = Output.STRING
     elif debug:
@@ -74,10 +78,10 @@ def run_remotely(node: str, command: Command, wd=None, debug=False, mode: RunMod
         output = Output.NULL
 
     if mode == mode.FORGET:
-        full_command = command.build(node, output=output, wd=wd, debug=debug, nohup=True)
+        full_command = command.build(node, output=output, wd=wd, debug=debug, nohup=True, env=env)
         return subprocess.check_output(full_command).strip().decode()
     else:
-        full_command = command.build(node, output=output, wd=wd, debug=debug, nohup=False)
+        full_command = command.build(node, output=output, wd=wd, debug=debug, nohup=False, env=env)
         if mode == mode.OUTPUT:
             return subprocess.check_output(full_command).strip().decode()
         elif mode == mode.VOID:
@@ -201,9 +205,14 @@ class Opencraft(Instance):
         run_remotely(self.node, Command(f"cp -r {opencraft_config} {self.opencraft_wd}"), debug=True)
 
     def start(self):
+        environment = [
+            ("AWS_ACCESS_KEY_ID", os.environ["AWS_ACCESS_KEY_ID"]),
+            ("AWS_SECRET_ACCESS_KEY", os.environ["AWS_SECRET_ACCESS_KEY"]),
+            ("AWS_DEFAULT_REGION", os.environ["AWS_DEFAULT_REGION"])
+            ]
         self.pid = run_remotely(self.node, Command(f"java {' '.join(self.jvm_args)} -jar {self.executable}"),
                                 wd=self.opencraft_wd, debug=True,
-                                mode=RunMode.FORGET)
+                                mode=RunMode.FORGET, env=environment)
 
     def stop(self):
         kill(self.node, self.pid)
@@ -217,6 +226,7 @@ class Opencraft(Instance):
         run_remotely(self.node, Command(f"[ ! -f {player_log} ] || mv {player_log} {player_log_dst}"))
         run_remotely(self.node, Command(
             f"mv {os.path.join(self.opencraft_wd, self.node + '.log')} {os.path.join(self.path, 'opencraft.' + self.node + '.log')}"))
+        run_remotely(self.node, Command(f"mv {os.path.join(self.opencraft_wd, 'worlds')} {self.path}"))
         run_remotely(self.node, Command(f"rm -rf {self.opencraft_wd}"))
 
 
@@ -267,6 +277,55 @@ class Yardstick(Instance):
         run_remotely(self.node, Command(
             f"[ ! -f {workload_dir} ] || mv {workload_dir} {os.path.join(self.path, 'yardstick.workload.' + self.node)}"))
         run_remotely(self.node, Command(f"rm -rf {self.yardstick_wd}"))
+
+class ConstructSpawner(Instance):
+
+    def __init__(self, node: str, experiment_path: str, root_path: str, iteration: int, args: List[str],
+                 opencraft_node: str):
+        super().__init__(node, experiment_path, root_path, iteration)
+        self.args = args
+        self.opencraft_node = to_ib(opencraft_node)
+        self.spawner_wd = None
+        self.thread = None
+        self.executable = None
+
+    def setup(self):
+        spawner = find_resource(self.path, "MinecraftClient.exe", root_path=self.root_path)
+        assert spawner is not None
+        self.executable = spawner
+        self.spawner_wd = run_remotely(self.node, Command(f"mktemp -d"), mode=RunMode.OUTPUT)
+
+        # copy all config, maybe it's better to copy a whole directory
+        spawner_config = find_resource(self.path, "MinecraftClient.ini", root_path=self.root_path)
+        spawner_tasks = find_resource(self.path, "tasks.ini", root_path=self.root_path)
+        spawner_script = find_resource(self.path, "create.cs", root_path=self.root_path)
+
+        assert spawner_config is not None
+        assert spawner_tasks is not None
+        assert spawner_script is not None
+
+        run_remotely(self.node, Command(f"cp {spawner_config} {self.spawner_wd}"), debug=True)
+        run_remotely(self.node, Command(f"cp {spawner_tasks} {self.spawner_wd}"), debug=True)
+        run_remotely(self.node, Command(f"cp {spawner_script} {self.spawner_wd}"), debug=True)
+
+
+    def start(self):
+        self.thread = run_remotely(self.node,
+                                   Command(
+                                       f"mono {' '.join(self.args)} {self.executable} javierron90 - {self.opencraft_node}"),
+                                   wd=self.spawner_wd,
+                                   debug=True, mode=RunMode.THREAD)
+
+    def stop(self):
+        self.thread.join()
+
+    def clean(self):
+        run_remotely(self.node, Command(
+            f"mv {os.path.join(self.spawner_wd, self.node + '.log')} {os.path.join(self.path, 'spawner.' + self.node + '.log')}"))
+        workload_dir = os.path.join(self.spawner_wd, 'workload')
+        run_remotely(self.node, Command(
+            f"[ ! -f {workload_dir} ] || mv {workload_dir} {os.path.join(self.path, 'spawner.workload.' + self.node)}"))
+        run_remotely(self.node, Command(f"rm -rf {self.spawner_wd}"))
 
 
 class Pecosa(Instance):
@@ -363,6 +422,18 @@ def _run_iteration(iteration, opencraft_node, yardstick_nodes, opencraft_jvm_arg
     pecosa = Pecosa(opencraft_node, path, root_path, iteration, opencraft.pid)
     pecosa.setup()
     pecosa.start()
+    
+    
+    ##CONSTRUCT SPAWNER
+    spawner = ConstructSpawner(yardstick_nodes[0], path, root_path, iteration, "", opencraft_node)
+
+    spawner.setup()
+    spawner.start()
+    spawner.stop()
+
+    time.sleep(10)
+
+    yardstick_nodes = yardstick_nodes[1:]
     yardstick_instances = []
     for node in yardstick_nodes:
         yardstick = Yardstick(node, path, root_path, iteration, yardstick_jvm_args, opencraft.node)
@@ -373,8 +444,10 @@ def _run_iteration(iteration, opencraft_node, yardstick_nodes, opencraft_jvm_arg
     for yi in yardstick_instances:
         # TODO change call to signal that Yardstick.stop simply waits.
         yi.stop()
+
     pecosa.stop()
     opencraft.stop()
+    spawner.clean()
     pecosa.clean()
     opencraft.clean()
     for yi in yardstick_instances:
